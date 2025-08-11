@@ -48,9 +48,8 @@ export default function AdminPreorderOfferPage() {
   }, [id]);
 
   const handleDelete = async () => {
-    const ok = confirm(
-      "Delete this preorder offer? Linked items will also be unlinked."
-    );
+    if (!id) return;
+    const ok = confirm("Delete this item? This cannot be undone.");
     if (!ok) return;
     try {
       const res = await fetch(
