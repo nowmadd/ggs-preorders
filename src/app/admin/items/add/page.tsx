@@ -1,5 +1,7 @@
 "use client";
-import { useEffect, useState } from "react";
+import { useState, useEffect } from "react";
+import { useCreateItemMutation } from "../../../../lib/store/api/itemsApi";
+import { useListCategoriesQuery } from "../../../../lib/store/api/gamesApi";
 
 export default function AddItemPage() {
   const [formData, setFormData] = useState({
@@ -14,31 +16,30 @@ export default function AddItemPage() {
     image: "",
   });
 
-  const [categories, setCategories] = useState<any[]>([]);
-  const [errors, setErrors] = useState<{ [key: string]: string }>({});
-  const [success, setSuccess] = useState<string>("");
+  const [errors, setErrors] = useState<Record<string, string>>({});
+  const [success, setSuccess] = useState("");
 
+  const [createItem, { isLoading: saving, isError, isSuccess }] =
+    useCreateItemMutation();
+
+  // 🔥 RTK Query for categories
+  const {
+    data: categories = [],
+    isLoading: catsLoading,
+    isError: catsError,
+    refetch: refetchCategories,
+  } = useListCategoriesQuery();
+  console.log("RTK categories data:", categories); // should be categories
   useEffect(() => {
-    async function fetchCategories() {
-      try {
-        const res = await fetch("/api/games");
-        const data = await res.json();
-        setCategories(data);
-      } catch (err) {
-        console.error("Failed to load categories", err);
-      }
-    }
-    fetchCategories();
-  }, []);
+    if (isSuccess) setSuccess("✅ Item added successfully!");
+  }, [isSuccess]);
 
   const validate = () => {
-    const newErrors: { [key: string]: string } = {};
-
+    const newErrors: Record<string, string> = {};
     if (!formData.id.trim()) newErrors.id = "Item ID is required.";
     if (!formData.name.trim()) newErrors.name = "Product Name is required.";
     if (!formData.price) newErrors.price = "Price is required.";
     if (!formData.category) newErrors.category = "Please select a category.";
-
     return newErrors;
   };
 
@@ -51,48 +52,46 @@ export default function AddItemPage() {
       const file = (e.target as HTMLInputElement).files?.[0];
       if (file) {
         const reader = new FileReader();
-        reader.onloadend = () => {
+        reader.onloadend = () =>
           setFormData((prev) => ({ ...prev, image: reader.result as string }));
-        };
         reader.readAsDataURL(file);
       }
       return;
     }
 
     setFormData((prev) => ({ ...prev, [name]: value }));
-    setErrors((prev) => ({ ...prev, [name]: "" })); // Clear error on change
+    setErrors((prev) => ({ ...prev, [name]: "" }));
+    setSuccess("");
   };
 
   const handleSelect = (e: React.ChangeEvent<HTMLSelectElement>) => {
     const { name, value } = e.target;
     setFormData((prev) => ({ ...prev, [name]: value }));
     setErrors((prev) => ({ ...prev, [name]: "" }));
+    setSuccess("");
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-
-    const validationErrors = validate();
-    if (Object.keys(validationErrors).length > 0) {
-      setErrors(validationErrors);
+    const v = validate();
+    if (Object.keys(v).length) {
+      setErrors(v);
       return;
     }
-
     try {
-      const res = await fetch("/api/items", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          ...formData,
-          price: Number(formData.price),
-          dp: Number(formData.dp),
-          discount: Number(formData.discount),
-        }),
-      });
+      await createItem({
+        id: formData.id.trim(),
+        name: formData.name.trim(),
+        description: formData.description?.trim() || undefined,
+        price: Number(formData.price),
+        dp: formData.dp ? Number(formData.dp) : 0,
+        discount: formData.discount ? Number(formData.discount) : 0,
+        category: formData.category || undefined,
+        releaseDate: formData.releaseDate || undefined,
+        image: formData.image || undefined,
+      }).unwrap();
 
-      if (!res.ok) throw new Error("Failed to add item");
-
-      setSuccess("✅ Item added successfully!");
+      // reset form after success
       setFormData({
         id: "",
         name: "",
@@ -105,10 +104,9 @@ export default function AddItemPage() {
         image: "",
       });
       setErrors({});
-    } catch (err) {
-      console.error(err);
-      setSuccess("");
-      setErrors({ submit: "❌ Error adding item. Please try again." });
+    } catch (e) {
+      // handled by isError
+      console.error(e);
     }
   };
 
@@ -121,9 +119,9 @@ export default function AddItemPage() {
           {success}
         </p>
       )}
-      {errors.submit && (
+      {isError && (
         <p className="p-2 mb-4 text-red-700 bg-red-100 rounded">
-          {errors.submit}
+          ❌ Error adding item. Please try again.
         </p>
       )}
 
@@ -210,7 +208,7 @@ export default function AddItemPage() {
           />
         </div>
 
-        {/* Category */}
+        {/* Category (from RTK Query) */}
         <div>
           <label className="block font-medium">Category</label>
           <select
@@ -218,14 +216,29 @@ export default function AddItemPage() {
             value={formData.category}
             onChange={handleSelect}
             className="w-full border p-2 rounded"
+            disabled={catsLoading}
           >
-            <option value="">Select Category</option>
-            {categories.map((cat) => (
-              <option key={cat._id} value={cat.game_code}>
+            <option value="">
+              {catsLoading ? "Loading categories..." : "Select Category"}
+            </option>
+            {categories.map((cat: any) => (
+              <option key={cat._id ?? cat.game_code} value={cat.game_title}>
                 {cat.game_title}
               </option>
             ))}
           </select>
+          {catsError && (
+            <p className="text-red-600 text-sm">
+              Failed to load categories.{" "}
+              <button
+                type="button"
+                onClick={() => refetchCategories()}
+                className="underline"
+              >
+                Retry
+              </button>
+            </p>
+          )}
           {errors.category && (
             <p className="text-red-600 text-sm">{errors.category}</p>
           )}
@@ -244,7 +257,7 @@ export default function AddItemPage() {
           />
         </div>
 
-        {/* Image Upload */}
+        {/* Image Upload (1:1 preview) */}
         <div>
           <label className="block font-medium">Image</label>
           <input
@@ -256,20 +269,23 @@ export default function AddItemPage() {
             autoComplete="off"
           />
           {formData.image && (
-            <img
-              src={formData.image}
-              alt="Preview"
-              className="w-32 h-32 object-cover mt-2 rounded"
-            />
+            <div className="mt-2 w-32 aspect-square">
+              <img
+                src={formData.image}
+                alt="Preview"
+                className="w-full h-full object-cover rounded"
+              />
+            </div>
           )}
         </div>
 
-        {/* Submit Button */}
+        {/* Submit */}
         <button
           type="submit"
-          className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700"
+          disabled={saving}
+          className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-60"
         >
-          Add Item
+          {saving ? "Saving…" : "Add Item"}
         </button>
       </form>
     </div>

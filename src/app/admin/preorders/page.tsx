@@ -1,8 +1,8 @@
-// app/admin/preorders/page.tsx
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import Link from "next/link";
+import { useListOffersQuery } from "../../../lib/store/api/offersApi";
 
 type Offer = {
   id: string;
@@ -15,28 +15,11 @@ type Offer = {
 };
 
 export default function PreorderOfferListPage() {
-  const [offers, setOffers] = useState<Offer[]>([]);
-  const [loading, setLoading] = useState(true);
+  const { data, isLoading, isError, refetch } = useListOffersQuery();
+  const offers: Offer[] = Array.isArray(data) ? (data as Offer[]) : [];
+
   const [q, setQ] = useState("");
   const [showActiveOnly, setShowActiveOnly] = useState(false);
-
-  useEffect(() => {
-    let mounted = true;
-    (async () => {
-      try {
-        const res = await fetch("/api/preorder-offers", { cache: "no-store" });
-        const data = await res.json();
-        if (mounted) setOffers(Array.isArray(data) ? data : []);
-      } catch (e) {
-        console.error(e);
-      } finally {
-        if (mounted) setLoading(false);
-      }
-    })();
-    return () => {
-      mounted = false;
-    };
-  }, []);
 
   const filtered = useMemo(() => {
     const term = q.trim().toLowerCase();
@@ -54,12 +37,20 @@ export default function PreorderOfferListPage() {
     <div className="max-w-6xl mx-auto p-6 space-y-6">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <h1 className="text-2xl font-semibold">Preorder Offers</h1>
-        <Link
-          href="/admin/preorders/add" // adjust if your create UI is elsewhere
-          className="inline-flex items-center px-3 py-2 rounded bg-sky-600 text-white hover:bg-sky-700"
-        >
-          + New Offer
-        </Link>
+        <div className="flex gap-2">
+          <button
+            onClick={() => refetch()}
+            className="px-3 py-2 rounded border hover:bg-gray-50"
+          >
+            Refresh
+          </button>
+          <Link
+            href="/admin/preorders/add"
+            className="inline-flex items-center px-3 py-2 rounded bg-sky-600 text-white hover:bg-sky-700"
+          >
+            + New Offer
+          </Link>
+        </div>
       </div>
 
       {/* Controls */}
@@ -81,7 +72,7 @@ export default function PreorderOfferListPage() {
       </div>
 
       {/* Loading */}
-      {loading && (
+      {isLoading && (
         <div className="space-y-2">
           <div className="h-10 bg-gray-200 animate-pulse rounded" />
           <div className="h-10 bg-gray-200 animate-pulse rounded" />
@@ -89,15 +80,26 @@ export default function PreorderOfferListPage() {
         </div>
       )}
 
+      {/* Error */}
+      {isError && !isLoading && (
+        <div className="p-4 rounded border bg-red-50 text-red-700">
+          Failed to load offers.{" "}
+          <button onClick={() => refetch()} className="underline">
+            Try again
+          </button>
+          .
+        </div>
+      )}
+
       {/* Empty */}
-      {!loading && filtered.length === 0 && (
+      {!isLoading && !isError && filtered.length === 0 && (
         <div className="p-4 rounded border bg-white">
           <p className="text-gray-600">No preorder offers found.</p>
         </div>
       )}
 
       {/* Table */}
-      {!loading && filtered.length > 0 && (
+      {!isLoading && !isError && filtered.length > 0 && (
         <div className="overflow-x-auto bg-white rounded border">
           <table className="min-w-full text-sm">
             <thead>
@@ -122,7 +124,7 @@ export default function PreorderOfferListPage() {
                   </td>
                   <td className="py-2 px-3 text-gray-700">{o.id}</td>
                   <td className="py-2 px-3">
-                    <div className="text-gray-700">
+                    <div className="text-gray-700 whitespace-nowrap">
                       {new Date(o.start_date).toLocaleDateString()} —{" "}
                       {new Date(o.end_date).toLocaleDateString()}
                     </div>
@@ -141,7 +143,7 @@ export default function PreorderOfferListPage() {
                   <td className="py-2 px-3 text-right">
                     <Link
                       href={`/admin/preorders/${encodeURIComponent(o.id)}`}
-                      className="text-sky-700 hover:underline"
+                      className="text-sky-700 hover:underline whitespace-nowrap"
                     >
                       View
                     </Link>

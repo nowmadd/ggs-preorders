@@ -1,76 +1,42 @@
 // app/admin/items/[id]/page.tsx
 "use client";
 
-import { useEffect, useState } from "react";
-import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
-
-type Item = {
-  id: string;
-  name: string;
-  description?: string;
-  price: number;
-  dp: number;
-  discount: number;
-  category?: string;
-  releaseDate?: string;
-  image?: string;
-};
+import { useParams, useRouter } from "next/navigation";
+import {
+  useGetItemQuery,
+  useDeleteItemMutation,
+  type Item,
+} from "../../../../lib/store/api/itemsApi";
 
 export default function AdminItemDetailPage() {
   const params = useParams<{ id: string }>();
   const id = params?.id;
   const router = useRouter();
 
-  const [item, setItem] = useState<Item | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [status, setStatus] = useState<null | {
-    type: "success" | "error";
-    message: string;
-  }>(null);
-
-  useEffect(() => {
-    if (!id) return;
-    let mounted = true;
-    (async () => {
-      try {
-        const res = await fetch(`/api/items/${encodeURIComponent(id)}`, {
-          cache: "no-store",
-        });
-        if (!res.ok) throw new Error("Failed to load item");
-        const data = await res.json();
-        if (mounted) setItem(data);
-      } catch (e) {
-        setStatus({ type: "error", message: "Failed to load item." });
-      } finally {
-        if (mounted) setLoading(false);
-      }
-    })();
-    return () => {
-      mounted = false;
-    };
-  }, [id]);
+  const {
+    data: item,
+    isLoading,
+    isError,
+    refetch,
+  } = useGetItemQuery(id!, {
+    skip: !id,
+  });
+  const [deleteItem, { isLoading: deleting }] = useDeleteItemMutation();
 
   const handleDelete = async () => {
     if (!id) return;
     const ok = confirm("Delete this item? This cannot be undone.");
     if (!ok) return;
     try {
-      const res = await fetch(`/api/items/${encodeURIComponent(id)}`, {
-        method: "DELETE",
-      });
-      if (!res.ok) throw new Error("Delete failed");
-      setStatus({ type: "success", message: "Item deleted." });
-      setTimeout(() => router.push("/admin/items"), 600);
+      await deleteItem(id).unwrap();
+      router.push("/admin/items");
     } catch {
-      setStatus({
-        type: "error",
-        message: "Could not delete item. Try again.",
-      });
+      alert("Could not delete item. Try again.");
     }
   };
 
-  if (loading) {
+  if (isLoading) {
     return (
       <div className="max-w-5xl mx-auto p-6 space-y-4">
         <div className="h-8 w-64 bg-gray-200 animate-pulse rounded" />
@@ -81,12 +47,23 @@ export default function AdminItemDetailPage() {
     );
   }
 
-  if (!item) {
+  if (isError || !item) {
     return (
-      <div className="max-w-3xl mx-auto p-6">
-        <p className="text-red-700 bg-red-50 p-3 rounded">Item not found.</p>
-        <div className="mt-4">
-          <Link href="/admin/items" className="text-sky-700 hover:underline">
+      <div className="max-w-3xl mx-auto p-6 space-y-3">
+        <p className="text-red-700 bg-red-50 p-3 rounded">
+          {isError ? "Failed to load item." : "Item not found."}
+        </p>
+        <div className="flex gap-2">
+          <button
+            onClick={() => refetch()}
+            className="px-3 py-2 rounded border hover:bg-gray-50"
+          >
+            Retry
+          </button>
+          <Link
+            href="/admin/items"
+            className="px-3 py-2 rounded border hover:bg-gray-50"
+          >
             ← Back to items
           </Link>
         </div>
@@ -117,33 +94,24 @@ export default function AdminItemDetailPage() {
           </Link>
           <button
             onClick={handleDelete}
-            className="px-3 py-2 rounded bg-red-600 text-white hover:bg-red-700"
+            disabled={deleting}
+            className="px-3 py-2 rounded bg-red-600 text-white hover:bg-red-700 disabled:opacity-60"
           >
-            Delete
+            {deleting ? "Deleting…" : "Delete"}
           </button>
         </div>
       </div>
 
-      {status && (
-        <div
-          className={`p-3 rounded ${
-            status.type === "success"
-              ? "bg-green-100 text-green-700"
-              : "bg-red-100 text-red-700"
-          }`}
-        >
-          {status.message}
-        </div>
-      )}
-
-      {/* Image */}
+      {/* Image (1:1 square) */}
       {item.image && (
-        <div className="w-full">
-          <img
-            src={item.image}
-            alt={item.name}
-            className="w-full max-h-80 object-cover rounded border"
-          />
+        <div className="w-full flex">
+          <div className="w-64 aspect-square rounded border overflow-hidden">
+            <img
+              src={item.image}
+              alt={item.name}
+              className="w-full h-full object-cover"
+            />
+          </div>
         </div>
       )}
 
@@ -156,7 +124,7 @@ export default function AdminItemDetailPage() {
         />
         <Detail
           label="Discount (%)"
-          value={item.discount != null ? String(item.discount) : "—"}
+          value={item.discount != null ? formatCurrency(item.discount) : "—"}
         />
         <Detail label="Category" value={item.category || "—"} />
         <Detail
@@ -195,7 +163,7 @@ function Detail({ label, value }: { label: string; value: string }) {
 
 function formatCurrency(n: number) {
   try {
-    return `₱${n.toLocaleString()}`;
+    return `₱ ${n.toLocaleString()}`;
   } catch {
     return "—";
   }

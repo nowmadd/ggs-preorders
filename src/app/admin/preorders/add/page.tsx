@@ -1,8 +1,11 @@
+// app/admin/preorders/add/page.tsx
 "use client";
-import { useEffect, useMemo, useState } from "react";
+
+import { useMemo, useState } from "react";
+import { useListItemsQuery } from "../../../../lib/store/api/itemsApi";
+import { useCreateOfferMutation } from "../../../../lib/store/api/offersApi";
 
 type Item = {
-  _id: string;
   id: string; // business id (e.g., ITEM-001)
   name: string;
   price?: number;
@@ -35,39 +38,32 @@ export default function NewPreorderOffer() {
   }>(null);
   const [errors, setErrors] = useState<Record<string, string>>({});
 
-  // --- Manual search state ---
-  const [allItems, setAllItems] = useState<Item[]>([]);
-  const [search, setSearch] = useState("");
-  const [loadingItems, setLoadingItems] = useState(true);
+  // 🔥 RTK Query: load items for manual search
+  const {
+    data: itemsData = [],
+    isLoading: loadingItems,
+    isError: itemsError,
+    refetch,
+  } = useListItemsQuery();
 
-  // Load items once (you can replace with a server-side search route if DB is big)
-  useEffect(() => {
-    (async () => {
-      try {
-        const res = await fetch("/api/items");
-        const data = await res.json();
-        setAllItems(Array.isArray(data) ? data : []);
-      } catch (e) {
-        console.error(e);
-      } finally {
-        setLoadingItems(false);
-      }
-    })();
-  }, []);
+  const [createOffer, { isLoading: creating }] = useCreateOfferMutation();
+
+  // --- Manual search state ---
+  const [search, setSearch] = useState("");
 
   const results = useMemo(() => {
     const q = search.trim().toLowerCase();
     if (!q) return [];
-    return allItems
+    return (itemsData as Item[])
       .filter(
         (it) =>
           it.name?.toLowerCase().includes(q) || it.id?.toLowerCase().includes(q)
       )
       .slice(0, 8);
-  }, [search, allItems]);
+  }, [search, itemsData]);
 
   const addItem = (it: Item) => {
-    if (form.items.some((x) => x.id === it.id)) return; // prevent duplicates
+    if (form.items.some((x) => x.id === it.id)) return;
     setForm((prev) => ({ ...prev, items: [...prev.items, it] }));
     setSearch("");
     setErrors((p) => ({ ...p, items: "" }));
@@ -76,10 +72,11 @@ export default function NewPreorderOffer() {
   const addByExactInput = () => {
     const q = search.trim().toLowerCase();
     if (!q) return;
+    const list = itemsData as Item[];
     const match =
-      allItems.find((it) => it.id?.toLowerCase() === q) ||
-      allItems.find((it) => it.name?.toLowerCase() === q) ||
-      results[0]; // fallback to first suggestion
+      list.find((it) => it.id?.toLowerCase() === q) ||
+      list.find((it) => it.name?.toLowerCase() === q) ||
+      results[0];
     if (match) addItem(match);
   };
 
@@ -95,7 +92,9 @@ export default function NewPreorderOffer() {
       HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement
     >
   ) => {
-    const { name, value, type, checked, files } = e.target as HTMLInputElement;
+    const target = e.target as HTMLInputElement;
+    const { name, value, type, checked, files } = target;
+
     if (type === "checkbox") {
       setForm((prev) => ({ ...prev, [name]: checked }));
       return;
@@ -139,21 +138,16 @@ export default function NewPreorderOffer() {
       return;
     }
     try {
-      const res = await fetch("/api/preorder-offers", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          id: `OFFER-${Date.now()}`, // business id
-          title: form.title.trim(),
-          description: form.description.trim(),
-          start_date: form.start_date,
-          end_date: form.end_date,
-          active: form.active,
-          banner: form.banner || undefined,
-          item_ids: form.items.map((it) => it.id), // send business IDs
-        }),
-      });
-      if (!res.ok) throw new Error("Create failed");
+      await createOffer({
+        id: `OFFER-${Date.now()}`,
+        title: form.title.trim(),
+        description: form.description.trim(),
+        start_date: form.start_date,
+        end_date: form.end_date,
+        active: form.active,
+        banner: form.banner || undefined,
+        item_ids: form.items.map((it) => it.id),
+      }).unwrap();
 
       setStatus({ type: "success", message: "Preorder offer created 🎉" });
       setForm({
@@ -188,6 +182,16 @@ export default function NewPreorderOffer() {
           }`}
         >
           {status.message}
+        </div>
+      )}
+
+      {/* Items load error (from RTK) */}
+      {itemsError && (
+        <div className="mb-4 p-3 rounded bg-red-50 text-red-700">
+          Failed to load items.{" "}
+          <button className="underline" onClick={() => refetch()}>
+            Retry
+          </button>
         </div>
       )}
 
@@ -322,7 +326,7 @@ export default function NewPreorderOffer() {
                 <ul className="space-y-1">
                   {results.map((it) => (
                     <li
-                      key={it._id}
+                      key={it.id}
                       className="flex items-center justify-between"
                     >
                       <span className="text-sm">
@@ -384,9 +388,10 @@ export default function NewPreorderOffer() {
         <div className="flex justify-end">
           <button
             type="submit"
-            className="inline-flex items-center px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700"
+            disabled={creating}
+            className="inline-flex items-center px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-60"
           >
-            Create Offer
+            {creating ? "Creating…" : "Create Offer"}
           </button>
         </div>
       </form>

@@ -1,44 +1,15 @@
-// app/admin/items/page.tsx
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import Link from "next/link";
-
-type Item = {
-  id: string;
-  name: string;
-  description?: string;
-  price: number;
-  dp: number;
-  discount: number;
-  category?: string;
-  releaseDate?: string;
-  image?: string;
-};
+import { useListItemsQuery, type Item } from "../../../lib/store/api/itemsApi";
 
 export default function AdminItemsPage() {
-  const [items, setItems] = useState<Item[]>([]);
-  const [loading, setLoading] = useState(true);
+  const { data, isLoading, isError, refetch } = useListItemsQuery();
+  const items = (data || []) as Item[];
+
   const [q, setQ] = useState("");
   const [categoryFilter, setCategoryFilter] = useState("");
-
-  useEffect(() => {
-    let mounted = true;
-    (async () => {
-      try {
-        const res = await fetch("/api/items", { cache: "no-store" });
-        const data = await res.json();
-        if (mounted) setItems(Array.isArray(data) ? data : []);
-      } catch (e) {
-        console.error(e);
-      } finally {
-        if (mounted) setLoading(false);
-      }
-    })();
-    return () => {
-      mounted = false;
-    };
-  }, []);
 
   const categories = useMemo(() => {
     const set = new Set(items.map((i) => i.category).filter(Boolean));
@@ -62,12 +33,20 @@ export default function AdminItemsPage() {
       {/* Header */}
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <h1 className="text-2xl font-semibold">Items</h1>
-        <Link
-          href="/admin/items/new"
-          className="inline-flex items-center px-3 py-2 rounded bg-sky-600 text-white hover:bg-sky-700"
-        >
-          + New Item
-        </Link>
+        <div className="flex gap-2">
+          <button
+            onClick={() => refetch()}
+            className="px-3 py-2 rounded border hover:bg-gray-50"
+          >
+            Refresh
+          </button>
+          <Link
+            href="/admin/items/add"
+            className="inline-flex items-center px-3 py-2 rounded bg-sky-600 text-white hover:bg-sky-700"
+          >
+            + New Item
+          </Link>
+        </div>
       </div>
 
       {/* Filters */}
@@ -91,9 +70,8 @@ export default function AdminItemsPage() {
           ))}
         </select>
       </div>
-
-      {/* Loading state */}
-      {loading && (
+      {/* Loading */}
+      {isLoading && (
         <div className="space-y-2">
           <div className="h-10 bg-gray-200 animate-pulse rounded" />
           <div className="h-10 bg-gray-200 animate-pulse rounded" />
@@ -101,15 +79,26 @@ export default function AdminItemsPage() {
         </div>
       )}
 
-      {/* Empty state */}
-      {!loading && filtered.length === 0 && (
+      {/* Error */}
+      {isError && !isLoading && (
+        <div className="p-4 rounded border bg-red-50 text-red-700">
+          Failed to load items.{" "}
+          <button onClick={() => refetch()} className="underline">
+            Try again
+          </button>
+          .
+        </div>
+      )}
+
+      {/* Empty */}
+      {!isLoading && !isError && filtered.length === 0 && (
         <div className="p-4 rounded border bg-white">
           <p className="text-gray-600">No items found.</p>
         </div>
       )}
 
       {/* Table */}
-      {!loading && filtered.length > 0 && (
+      {!isLoading && !isError && filtered.length > 0 && (
         <div className="overflow-x-auto bg-white rounded border">
           <table className="min-w-full text-sm">
             <thead>
@@ -140,9 +129,11 @@ export default function AdminItemsPage() {
                   </td>
                   <td className="py-2 px-3 font-medium">{i.name}</td>
                   <td className="py-2 px-3 text-gray-700">{i.id}</td>
-                  <td className="py-2 px-3">₱{i.price.toLocaleString()}</td>
-                  <td className="py-2 px-3">
-                    {i.dp ? `₱${i.dp.toLocaleString()}` : "-"}
+                  <td className="py-2 px-3 whitespace-nowrap">
+                    ₱ {i.price.toLocaleString()}
+                  </td>
+                  <td className="py-2 px-3 whitespace-nowrap">
+                    {i.dp ? `₱ ${i.dp.toLocaleString()}` : "-"}
                   </td>
                   <td className="py-2 px-3">{i.category || "-"}</td>
                   <td className="py-2 px-3">
