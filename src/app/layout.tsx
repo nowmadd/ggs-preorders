@@ -3,6 +3,7 @@ import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 import Providers from "../providers";
 import Header from "@/components/Header/Header";
+import { Suspense } from "react";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -28,12 +29,14 @@ export default function RootLayout({
   return (
     <html lang="en">
       <Providers>
-        <Header />
-        <body className="min-h-screen bg-gray-50 text-gray-900">
-          <main className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8 py-6">
-            {children}
-          </main>
-        </body>
+        <Suspense fallback={null}>
+          <Header />
+          <body className="min-h-screen bg-gray-50 text-gray-900">
+            <main className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8 py-6">
+              {children}
+            </main>
+          </body>
+        </Suspense>
       </Providers>
     </html>
   );

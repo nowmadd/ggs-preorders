@@ -57,10 +57,10 @@ export default function Home() {
         ) : session ? (
           <div className="flex items-center gap-2">
             <Link
-              href="/profile"
+              href="/account"
               className="px-3 py-2 rounded border hover:bg-gray-50"
             >
-              Profile
+              Account
             </Link>
             <Link
               href="/preorders"

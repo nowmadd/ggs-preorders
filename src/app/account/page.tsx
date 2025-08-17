@@ -4,7 +4,7 @@ import Image from "next/image";
 import { useSession, signOut } from "next-auth/react";
 import Link from "next/link";
 
-export default function ProfilePage() {
+export default function AccountPage() {
   const { data: session, status } = useSession();
 
   if (status === "loading") {
