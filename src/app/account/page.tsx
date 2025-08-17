@@ -20,7 +20,7 @@ export default function ProfilePage() {
     return (
       <div className="max-w-lg mx-auto p-6 space-y-4">
         <p className="p-3 rounded bg-yellow-50 text-yellow-800">
-          You're not signed in.
+          You are not signed in.
         </p>
         <div className="flex gap-2">
           <Link
