@@ -1,61 +1,85 @@
 import type { NextApiRequest, NextApiResponse } from "next";
-import dbConnect from "../../../lib/dbConnect";
-import Offers from "../../../lib/models/PreorderOffers";
-import PreorderOfferItems from "../../../lib/models/PreorderOfferItems";
+import dbConnect from "@/lib/dbConnect";
+import PreorderOffer from "@/lib/models/PreorderOffers";
+import PreorderOfferItem from "@/lib/models/PreorderOfferItems";
+import Item from "@/lib/models/Items";
 
 export default async function handler(
   req: NextApiRequest,
   res: NextApiResponse
 ) {
   await dbConnect();
-  const { id } = req.query;
+  const { id } = req.query as { id: string };
 
-  if (req.method === "GET") {
-    try {
-      // join offer -> links -> items (by business id)
-      const data = await Offers.aggregate([
-        { $match: { id: String(id) } },
+  try {
+    if (req.method === "GET") {
+      const include = String(req.query.include || "");
+      const withItems = include.split(",").includes("items");
+
+      if (!withItems) {
+        const offer = await PreorderOffer.findOne({ id }).lean();
+        if (!offer) return res.status(404).json({ error: "Offer not found" });
+        const { _id, ...rest } = offer as any;
+        return res.status(200).json(rest);
+      }
+
+      // With items (join table)
+      const results = await PreorderOffer.aggregate([
+        { $match: { id } },
         {
           $lookup: {
-            from: "preorderofferitems",
+            from: PreorderOfferItem.collection.name,
             localField: "id",
             foreignField: "offer_id",
             as: "links",
           },
         },
-        { $addFields: { item_ids: "$links.item_id" } },
         {
           $lookup: {
-            from: "items",
-            localField: "item_ids",
-            foreignField: "id", // business id on items collection
+            from: Item.collection.name,
+            localField: "links.item_id",
+            foreignField: "id",
             as: "items",
           },
         },
-        { $unset: ["links", "item_ids"] },
+        {
+          $project: {
+            _id: 0,
+            id: 1,
+            title: 1,
+            description: 1,
+            start_date: 1,
+            end_date: 1,
+            active: 1,
+            banner: 1,
+            created_at: 1,
+            items: {
+              $map: {
+                input: "$items",
+                as: "it",
+                in: {
+                  id: "$$it.id",
+                  name: "$$it.name",
+                  price: "$$it.price",
+                  dp: "$$it.dp",
+                  image: "$$it.image",
+                },
+              },
+            },
+          },
+        },
+        { $limit: 1 },
       ]);
 
-      if (!data.length)
+      if (!results.length)
         return res.status(404).json({ error: "Offer not found" });
-      return res.status(200).json(data[0]);
-    } catch (e) {
-      console.error(e);
-      return res.status(500).json({ error: "Server error" });
+      return res.status(200).json(results[0]);
     }
-  }
 
-  if (req.method === "DELETE") {
-    try {
-      const removed = await Offers.findOneAndDelete({ id: String(id) });
-      if (!removed) return res.status(404).json({ error: "Offer not found" });
-      await PreorderOfferItems.deleteMany({ offer_id: String(id) });
-      return res.status(200).json({ ok: true });
-    } catch (e) {
-      console.error(e);
-      return res.status(500).json({ error: "Server error" });
-    }
+    res.setHeader("Allow", "GET");
+    return res.status(405).end("Method Not Allowed");
+  } catch (err) {
+    console.error("PREORDER_OFFER_ID_ERROR", err);
+    return res.status(500).json({ error: "Server error" });
   }
-
-  res.setHeader("Allow", "GET, DELETE");
-  return res.status(405).end("Method Not Allowed");
 }

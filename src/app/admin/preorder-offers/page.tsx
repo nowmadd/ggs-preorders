@@ -45,7 +45,7 @@ export default function PreorderOfferListPage() {
             Refresh
           </button>
           <Link
-            href="/admin/preorders/add"
+            href="/admin/preorder-offers/add"
             className="inline-flex items-center px-3 py-2 rounded bg-sky-600 text-white hover:bg-sky-700"
           >
             + New Offer
@@ -142,7 +142,9 @@ export default function PreorderOfferListPage() {
                   </td>
                   <td className="py-2 px-3 text-right">
                     <Link
-                      href={`/admin/preorders/${encodeURIComponent(o.id)}`}
+                      href={`/admin/preorder-offers/${encodeURIComponent(
+                        o.id
+                      )}`}
                       className="text-sky-700 hover:underline whitespace-nowrap"
                     >
                       View

@@ -1,4 +1,3 @@
-// app/admin/items/[id]/page.tsx
 "use client";
 
 import Link from "next/link";
@@ -73,7 +72,6 @@ export default function AdminItemDetailPage() {
 
   return (
     <div className="max-w-5xl mx-auto p-6 space-y-6">
-      {/* Header + actions */}
       <div className="flex items-start justify-between gap-4">
         <div>
           <h1 className="text-2xl font-semibold">{item.name}</h1>
@@ -102,7 +100,6 @@ export default function AdminItemDetailPage() {
         </div>
       </div>
 
-      {/* Image (1:1 square) */}
       {item.image && (
         <div className="w-full flex">
           <div className="w-64 aspect-square rounded border overflow-hidden">
@@ -115,7 +112,6 @@ export default function AdminItemDetailPage() {
         </div>
       )}
 
-      {/* Details */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         <Detail label="Price" value={formatCurrency(item.price)} />
         <Detail
@@ -137,7 +133,6 @@ export default function AdminItemDetailPage() {
         />
       </div>
 
-      {/* Description */}
       {item.description && (
         <div className="bg-white rounded border p-4">
           <h2 className="font-medium mb-2">Description</h2>

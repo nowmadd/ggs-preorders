@@ -3,6 +3,7 @@ import { itemsApi } from "./api/itemsApi";
 import { offersApi } from "./api/offersApi";
 import { gamesApi } from "./api/gamesApi";
 import uiReducer from "./uiSlice";
+import { preordersApi } from "./api/preordersApi";
 
 export const store = configureStore({
   reducer: {
@@ -10,12 +11,14 @@ export const store = configureStore({
     [itemsApi.reducerPath]: itemsApi.reducer,
     [offersApi.reducerPath]: offersApi.reducer,
     [gamesApi.reducerPath]: gamesApi.reducer,
+    [preordersApi.reducerPath]: preordersApi.reducer,
   },
   middleware: (getDefaultMiddleware) =>
     getDefaultMiddleware().concat(
       itemsApi.middleware,
       offersApi.middleware,
-      gamesApi.middleware
+      gamesApi.middleware,
+      preordersApi.middleware
     ),
 });
 

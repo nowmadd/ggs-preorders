@@ -22,7 +22,6 @@ export default function AddItemPage() {
   const [createItem, { isLoading: saving, isError, isSuccess }] =
     useCreateItemMutation();
 
-  // 🔥 RTK Query for categories
   const {
     data: categories = [],
     isLoading: catsLoading,
@@ -121,12 +120,11 @@ export default function AddItemPage() {
       )}
       {isError && (
         <p className="p-2 mb-4 text-red-700 bg-red-100 rounded">
-          ❌ Error adding item. Please try again.
+          Error adding item. Please try again.
         </p>
       )}
 
       <form onSubmit={handleSubmit} className="space-y-4">
-        {/* Item ID */}
         <div>
           <label className="block font-medium">Item ID</label>
           <input
@@ -140,7 +138,6 @@ export default function AddItemPage() {
           {errors.id && <p className="text-red-600 text-sm">{errors.id}</p>}
         </div>
 
-        {/* Product Name */}
         <div>
           <label className="block font-medium">Product Name</label>
           <input
@@ -154,7 +151,6 @@ export default function AddItemPage() {
           {errors.name && <p className="text-red-600 text-sm">{errors.name}</p>}
         </div>
 
-        {/* Description */}
         <div>
           <label className="block font-medium">Description</label>
           <textarea
@@ -166,7 +162,6 @@ export default function AddItemPage() {
           />
         </div>
 
-        {/* Price */}
         <div>
           <label className="block font-medium">Price</label>
           <input
@@ -182,7 +177,6 @@ export default function AddItemPage() {
           )}
         </div>
 
-        {/* Down Payment */}
         <div>
           <label className="block font-medium">Down Payment</label>
           <input
@@ -195,7 +189,6 @@ export default function AddItemPage() {
           />
         </div>
 
-        {/* Discount */}
         <div>
           <label className="block font-medium">Discount</label>
           <input
@@ -208,7 +201,6 @@ export default function AddItemPage() {
           />
         </div>
 
-        {/* Category (from RTK Query) */}
         <div>
           <label className="block font-medium">Category</label>
           <select
@@ -244,7 +236,6 @@ export default function AddItemPage() {
           )}
         </div>
 
-        {/* Release Date */}
         <div>
           <label className="block font-medium">Release Date</label>
           <input
@@ -257,25 +248,25 @@ export default function AddItemPage() {
           />
         </div>
 
-        {/* Image Upload (1:1 preview) */}
         <div>
           <label className="block font-medium">Image</label>
-          <input
+          {/* <input
             type="file"
             name="image"
             accept="image/*"
             onChange={handleChange}
             className="w-full p-2 border rounded"
             autoComplete="off"
-          />
+          /> */}
           {formData.image && (
-            <div className="mt-2 w-32 aspect-square">
-              <img
-                src={formData.image}
-                alt="Preview"
-                className="w-full h-full object-cover rounded"
-              />
-            </div>
+            // <div className="mt-2 w-32 aspect-square">
+            //   <img
+            //     src={formData.image}
+            //     alt="Preview"
+            //     className="w-full h-full object-cover rounded"
+            //   />
+            // </div>
+            <></>
           )}
         </div>
 

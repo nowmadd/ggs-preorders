@@ -1,4 +1,3 @@
-// app/admin/preorders/add/page.tsx
 "use client";
 
 import { useMemo, useState } from "react";
@@ -38,7 +37,6 @@ export default function NewPreorderOffer() {
   }>(null);
   const [errors, setErrors] = useState<Record<string, string>>({});
 
-  // 🔥 RTK Query: load items for manual search
   const {
     data: itemsData = [],
     isLoading: loadingItems,

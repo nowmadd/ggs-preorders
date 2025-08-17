@@ -2,6 +2,7 @@ import type { NextApiRequest, NextApiResponse } from "next";
 import dbConnect from "../../../lib/dbConnect";
 import Offers from "../../../lib/models/PreorderOffers";
 import PreorderOfferItems from "../../../lib/models/PreorderOfferItems";
+import Items from "@/lib/models/Items";
 
 export default async function handler(
   req: NextApiRequest,
@@ -30,7 +31,6 @@ export default async function handler(
       if (!Array.isArray(item_ids))
         return res.status(400).json({ error: "item_ids must be an array" });
 
-      // 1) create offer
       const offer = await Offers.create({
         id,
         title: title.trim(),
@@ -41,7 +41,6 @@ export default async function handler(
         banner,
       });
 
-      // 2) create links
       const links = [...new Set(item_ids)]
         .filter((s: string) => typeof s === "string" && s.trim())
         .map((item_id: string, idx: number) => ({
@@ -61,13 +60,52 @@ export default async function handler(
   }
 
   if (req.method === "GET") {
-    try {
-      const offers = await Offers.find({}).lean();
-      return res.status(200).json(offers);
-    } catch (e) {
-      console.error(e);
-      return res.status(500).json({ error: "Server error" });
-    }
+    // Always include items in the list
+    const offers = await Offers.aggregate([
+      {
+        $lookup: {
+          from: PreorderOfferItems.collection.name, // join table
+          localField: "id",
+          foreignField: "offer_id",
+          as: "links",
+        },
+      },
+      {
+        $lookup: {
+          from: Items.collection.name,
+          localField: "links.item_id",
+          foreignField: "id",
+          as: "items",
+        },
+      },
+      {
+        $project: {
+          _id: 0,
+          id: 1,
+          title: 1,
+          description: 1,
+          start_date: 1,
+          end_date: 1,
+          active: 1,
+          banner: 1,
+          created_at: 1,
+          items: {
+            $map: {
+              input: "$items",
+              as: "it",
+              in: {
+                id: "$$it.id",
+                name: "$$it.name",
+                price: "$$it.price",
+                image: "$$it.image",
+              },
+            },
+          },
+        },
+      },
+    ]);
+
+    return res.status(200).json(offers);
   }
 
   res.setHeader("Allow", "GET, POST");
