@@ -8,6 +8,7 @@ export type Offer = {
   end_date: string;
   active: boolean;
   banner?: string;
+  logo?: string;
 };
 
 export type OfferItem = {
@@ -32,7 +33,7 @@ export const offersApi = createApi({
   tagTypes: ["Offer"],
   endpoints: (builder) => ({
     listOffers: builder.query<OfferWithItems[], void>({
-      query: () => "preorder-offers",
+      query: () => "preorder-offers?include=items",
       providesTags: (result) =>
         result
           ? [
@@ -41,17 +42,28 @@ export const offersApi = createApi({
             ]
           : [{ type: "Offer" as const, id: "LIST" }],
     }),
-
     getOffer: builder.query<OfferWithItems, string>({
       query: (id) => `preorder-offers/${encodeURIComponent(id)}?include=items`,
       providesTags: (_r, _e, id) => [{ type: "Offer", id }],
     }),
-
     createOffer: builder.mutation<any, any>({
       query: (body) => ({ url: "preorder-offers", method: "POST", body }),
       invalidatesTags: [{ type: "Offer", id: "LIST" }],
     }),
-
+    updateOffer: builder.mutation<
+      any,
+      { id: string; data: Partial<Offer> & { item_ids?: string[] } }
+    >({
+      query: ({ id, data }) => ({
+        url: `preorder-offers/${encodeURIComponent(id)}?include=items`,
+        method: "PATCH",
+        body: data,
+      }),
+      invalidatesTags: (_r, _e, { id }) => [
+        { type: "Offer", id },
+        { type: "Offer", id: "LIST" },
+      ],
+    }),
     deleteOffer: builder.mutation<{ ok: boolean }, string>({
       query: (id) => ({
         url: `preorder-offers/${encodeURIComponent(id)}`,
@@ -66,5 +78,6 @@ export const {
   useListOffersQuery,
   useGetOfferQuery,
   useCreateOfferMutation,
+  useUpdateOfferMutation,
   useDeleteOfferMutation,
 } = offersApi;

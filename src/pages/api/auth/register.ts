@@ -1,10 +1,8 @@
-// pages/api/auth/register.ts
 import type { NextApiRequest, NextApiResponse } from "next";
 import bcrypt from "bcryptjs";
-import dbConnect from "@/lib/dbConnect";
+import dbConnect from "@/lib/store/db/connect";
 import Customer from "@/lib/models/Customer";
 
-// OPTIONAL: comma-separated admin email list in env, e.g. "owner@ggshobby.com,admin@ggshobby.com"
 const adminEmails = (process.env.ADMIN_EMAILS || "")
   .split(",")
   .map((s) => s.trim().toLowerCase())

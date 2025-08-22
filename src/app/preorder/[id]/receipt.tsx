@@ -1,4 +1,3 @@
-// app/preorders/[id]/confirm/page.tsx
 "use client";
 
 import { useMemo, useState } from "react";

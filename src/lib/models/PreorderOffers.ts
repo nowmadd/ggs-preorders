@@ -1,26 +1,27 @@
 import mongoose, { Schema, Document } from "mongoose";
 
 export interface IPreorderOffer extends Document {
-  id: string; // business id e.g. OFFER-...
+  id: string; // business id, e.g., OFFER-123
   title: string;
   description?: string;
-  start_date: Date;
-  end_date: Date;
+  start_date: string;
+  end_date: string;
   active: boolean;
-  banner?: string;
-  created_at?: Date;
+  banner?: string; // S3 key (optional)
+  logo?: string; // S3 key (optional)
 }
 
 const PreorderOfferSchema = new Schema<IPreorderOffer>({
   id: { type: String, required: true, unique: true },
   title: { type: String, required: true },
   description: String,
-  start_date: { type: Date, required: true },
-  end_date: { type: Date, required: true },
+  start_date: { type: String, required: true },
+  end_date: { type: String, required: true },
   active: { type: Boolean, default: true },
   banner: String,
-  created_at: { type: Date, default: Date.now },
+  logo: String,
 });
 
-export default mongoose.models.PreorderOffers ||
+export default (mongoose.models
+  .PreorderOffers as mongoose.Model<IPreorderOffer>) ||
   mongoose.model<IPreorderOffer>("PreorderOffers", PreorderOfferSchema);

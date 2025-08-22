@@ -1,4 +1,3 @@
-// app/admin/layout.tsx
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/pages/api/auth/[...nextauth]";
 import { redirect } from "next/navigation";

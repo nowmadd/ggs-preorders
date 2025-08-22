@@ -1,10 +1,30 @@
 "use client";
-import { useState, useEffect } from "react";
-import { useCreateItemMutation } from "../../../../lib/store/api/itemsApi";
-import { useListCategoriesQuery } from "../../../../lib/store/api/gamesApi";
+
+import { useEffect, useMemo, useState } from "react";
+import { useSearchParams } from "next/navigation";
+import {
+  useCreateItemMutation,
+  useGetItemQuery,
+} from "@/lib/store/api/itemsApi";
+import { useListGamesQuery, type Game } from "@/lib/store/api/gamesApi";
+import { optimizeImage } from "@/lib/images/optimizeImage";
+import { uploadOptimizedImageToS3 } from "@/lib/s3/uploadImage";
+
+type FormState = {
+  id: string;
+  name: string;
+  description: string;
+  price: string;
+  dp: string;
+  discount: string;
+  category: string;
+  game?: Game;
+  releaseDate: string;
+  image: string;
+};
 
 export default function AddItemPage() {
-  const [formData, setFormData] = useState({
+  const [form, setForm] = useState<FormState>({
     id: "",
     name: "",
     description: "",
@@ -12,106 +32,191 @@ export default function AddItemPage() {
     dp: "",
     discount: "",
     category: "",
+    game: undefined,
     releaseDate: "",
     image: "",
   });
 
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [success, setSuccess] = useState("");
+  const [uploading, setUploading] = useState(false);
+  const [localPreview, setLocalPreview] = useState<string | null>(null);
+  const [dpTouched, setDpTouched] = useState(false);
 
-  const [createItem, { isLoading: saving, isError, isSuccess }] =
+  const [createItem, { isLoading: saving, isSuccess, isError }] =
     useCreateItemMutation();
 
   const {
-    data: categories = [],
-    isLoading: catsLoading,
-    isError: catsError,
-    refetch: refetchCategories,
-  } = useListCategoriesQuery();
-  console.log("RTK categories data:", categories); // should be categories
+    data: games = [],
+    isLoading: gamesLoading,
+    isError: gamesError,
+    refetch: refetchGames,
+  } = useListGamesQuery();
+
+  const sortedGames = useMemo(
+    () =>
+      [...(games as Game[])].sort((a, b) =>
+        a.game_title.localeCompare(b.game_title)
+      ),
+    [games]
+  );
+
   useEffect(() => {
     if (isSuccess) setSuccess("✅ Item added successfully!");
   }, [isSuccess]);
 
+  const searchParams = useSearchParams();
+  const copyOf = searchParams?.get("copyOf") ?? undefined;
+
+  const { data: srcItem, isLoading: loadingSrc } = useGetItemQuery(
+    copyOf as string,
+    { skip: !copyOf }
+  );
+
+  useEffect(() => {
+    if (!srcItem) return;
+
+    const priceNum = Number(srcItem.price || 0);
+    const releaseISO = srcItem.releaseDate
+      ? new Date(srcItem.releaseDate).toISOString().slice(0, 10)
+      : "";
+
+    setForm({
+      id: "",
+      name: `${srcItem.name || srcItem.title || ""} (Copy)`.trim(),
+      description: srcItem.description || "",
+      price: Number.isFinite(priceNum) ? String(priceNum) : "",
+      dp: String(Math.round(priceNum * 0.3)),
+      discount:
+        typeof srcItem.discount === "number" ? String(srcItem.discount) : "",
+      category: typeof srcItem.category === "string" ? srcItem.category : "",
+      game: (srcItem as any).game as Game | undefined,
+      releaseDate: releaseISO,
+      image: "",
+    });
+
+    setLocalPreview(null);
+    setErrors({});
+    setSuccess("");
+    setDpTouched(false);
+  }, [srcItem]);
+
+  useEffect(() => {
+    if (dpTouched) return;
+    const p = Number(form.price);
+    if (!Number.isFinite(p) || p <= 0) return;
+    setForm((prev) => ({ ...prev, dp: String(Math.round(p * 0.3)) }));
+  }, [form.price, dpTouched]);
+
   const validate = () => {
-    const newErrors: Record<string, string> = {};
-    if (!formData.id.trim()) newErrors.id = "Item ID is required.";
-    if (!formData.name.trim()) newErrors.name = "Product Name is required.";
-    if (!formData.price) newErrors.price = "Price is required.";
-    if (!formData.category) newErrors.category = "Please select a category.";
-    return newErrors;
+    const e: Record<string, string> = {};
+    if (!form.id.trim()) e.id = "Item ID is required.";
+    if (!form.name.trim()) e.name = "Product Name is required.";
+    if (!form.price.trim() || Number.isNaN(Number(form.price)))
+      e.price = "Valid price is required.";
+    if (form.dp && Number(form.dp) < 0) e.dp = "DP cannot be negative.";
+    if (form.discount && Number(form.discount) < 0)
+      e.discount = "Discount cannot be negative.";
+    if (!form.category.trim()) e.category = "Category is required.";
+    if (!form.game) e.game = "Please select a game.";
+    return e;
   };
 
-  const handleChange = (
-    e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>
-  ) => {
-    const { name, value, type } = e.target;
-
-    if (type === "file") {
-      const file = (e.target as HTMLInputElement).files?.[0];
-      if (file) {
-        const reader = new FileReader();
-        reader.onloadend = () =>
-          setFormData((prev) => ({ ...prev, image: reader.result as string }));
-        reader.readAsDataURL(file);
-      }
-      return;
-    }
-
-    setFormData((prev) => ({ ...prev, [name]: value }));
-    setErrors((prev) => ({ ...prev, [name]: "" }));
-    setSuccess("");
-  };
-
-  const handleSelect = (e: React.ChangeEvent<HTMLSelectElement>) => {
+  const onFieldChange: React.ChangeEventHandler<
+    HTMLInputElement | HTMLTextAreaElement
+  > = (e) => {
     const { name, value } = e.target;
-    setFormData((prev) => ({ ...prev, [name]: value }));
-    setErrors((prev) => ({ ...prev, [name]: "" }));
+    if (name === "dp") setDpTouched(true);
+    setForm((p) => ({ ...p, [name]: value }));
+    setErrors((p) => ({ ...p, [name]: "" }));
     setSuccess("");
   };
 
-  const handleSubmit = async (e: React.FormEvent) => {
+  const onSelectGame: React.ChangeEventHandler<HTMLSelectElement> = (e) => {
+    const selectedId = e.target.value;
+    const game = sortedGames.find((g) => g.id === selectedId);
+    setForm((p) => ({ ...p, game }));
+    setErrors((p) => ({ ...p, game: "" as any }));
+  };
+
+  const onPickImage: React.ChangeEventHandler<HTMLInputElement> = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    try {
+      setUploading(true);
+      const { blob, suggestedFilename } = await optimizeImage(file, {
+        maxWidth: 1600,
+        maxHeight: 1600,
+      });
+      setLocalPreview(URL.createObjectURL(blob));
+      const { key } = await uploadOptimizedImageToS3(
+        new File([blob], suggestedFilename, { type: blob.type }),
+        "items"
+      );
+      setForm((p) => ({ ...p, image: key }));
+      setErrors((p) => ({ ...p, image: "" }));
+    } catch (err) {
+      console.error(err);
+      setErrors((p) => ({ ...p, image: "Image upload failed." }));
+      setForm((p) => ({ ...p, image: "" }));
+      setLocalPreview(null);
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  const onSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     const v = validate();
     if (Object.keys(v).length) {
       setErrors(v);
       return;
     }
-    try {
-      await createItem({
-        id: formData.id.trim(),
-        name: formData.name.trim(),
-        description: formData.description?.trim() || undefined,
-        price: Number(formData.price),
-        dp: formData.dp ? Number(formData.dp) : 0,
-        discount: formData.discount ? Number(formData.discount) : 0,
-        category: formData.category || undefined,
-        releaseDate: formData.releaseDate || undefined,
-        image: formData.image || undefined,
-      }).unwrap();
 
-      // reset form after success
-      setFormData({
-        id: "",
-        name: "",
-        description: "",
-        price: "",
-        dp: "",
-        discount: "",
-        category: "",
-        releaseDate: "",
-        image: "",
-      });
-      setErrors({});
-    } catch (e) {
-      // handled by isError
-      console.error(e);
-    }
+    await createItem({
+      id: form.id.trim(),
+      name: form.name.trim(),
+      description: form.description?.trim() || undefined,
+      price: Number(form.price),
+      dp: form.dp ? Number(form.dp) : 0,
+      discount: form.discount ? Number(form.discount) : 0,
+      category: form.category.trim(),
+      game: form.game,
+      releaseDate: form.releaseDate || undefined,
+      image: form.image || undefined,
+      images: [],
+      title: form.name.trim(),
+    }).unwrap();
+
+    setForm({
+      id: "",
+      name: "",
+      description: "",
+      price: "",
+      dp: "",
+      discount: "",
+      category: "",
+      game: undefined,
+      releaseDate: "",
+      image: "",
+    });
+    setLocalPreview(null);
+    setErrors({});
+    setDpTouched(false);
   };
+
+  const selectedGameId = form.game?.id ?? "";
 
   return (
     <div className="max-w-2xl mx-auto p-6">
       <h1 className="text-2xl font-bold mb-6">Add New Item</h1>
+
+      {copyOf && (
+        <p className="p-2 mb-4 text-amber-800 bg-amber-50 rounded">
+          Duplicating from <span className="font-mono">{copyOf}</span>. Update
+          the <b>Item ID</b>, <b>Product Name</b>, and <b>Image</b>.
+        </p>
+      )}
 
       {success && (
         <p className="p-2 mb-4 text-green-700 bg-green-100 rounded">
@@ -124,161 +229,157 @@ export default function AddItemPage() {
         </p>
       )}
 
-      <form onSubmit={handleSubmit} className="space-y-4">
-        <div>
-          <label className="block font-medium">Item ID</label>
+      <form onSubmit={onSubmit} className="space-y-4">
+        <Field label="Item ID" error={errors.id}>
           <input
-            type="text"
             name="id"
-            value={formData.id}
-            onChange={handleChange}
+            value={form.id}
+            onChange={onFieldChange}
             className="w-full p-2 border rounded"
-            autoComplete="off"
+            placeholder="ITEM-000123"
           />
-          {errors.id && <p className="text-red-600 text-sm">{errors.id}</p>}
-        </div>
+        </Field>
 
-        <div>
-          <label className="block font-medium">Product Name</label>
+        <Field label="Product Name" error={errors.name}>
           <input
-            type="text"
             name="name"
-            value={formData.name}
-            onChange={handleChange}
+            value={form.name}
+            onChange={onFieldChange}
             className="w-full p-2 border rounded"
-            autoComplete="off"
           />
-          {errors.name && <p className="text-red-600 text-sm">{errors.name}</p>}
-        </div>
+        </Field>
 
-        <div>
-          <label className="block font-medium">Description</label>
+        <Field label="Description">
           <textarea
             name="description"
-            value={formData.description}
-            onChange={handleChange}
+            value={form.description}
+            onChange={onFieldChange}
             className="w-full p-2 border rounded"
-            autoComplete="off"
           />
+        </Field>
+
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <Field label="Price" error={errors.price}>
+            <input
+              name="price"
+              type="number"
+              value={form.price}
+              onChange={onFieldChange}
+              className="w-full p-2 border rounded"
+            />
+          </Field>
+          <Field label="Down Payment (auto 30%)" error={errors.dp}>
+            <input
+              name="dp"
+              type="number"
+              value={form.dp}
+              onChange={onFieldChange}
+              className="w-full p-2 border rounded"
+            />
+          </Field>
+          <Field label="Discount (amount)" error={errors.discount}>
+            <input
+              name="discount"
+              type="number"
+              value={form.discount}
+              onChange={onFieldChange}
+              className="w-full p-2 border rounded"
+            />
+          </Field>
         </div>
 
-        <div>
-          <label className="block font-medium">Price</label>
-          <input
-            type="number"
-            name="price"
-            value={formData.price}
-            onChange={handleChange}
-            className="w-full p-2 border rounded"
-            autoComplete="off"
-          />
-          {errors.price && (
-            <p className="text-red-600 text-sm">{errors.price}</p>
-          )}
-        </div>
-
-        <div>
-          <label className="block font-medium">Down Payment</label>
-          <input
-            type="number"
-            name="dp"
-            value={formData.dp}
-            onChange={handleChange}
-            className="w-full p-2 border rounded"
-            autoComplete="off"
-          />
-        </div>
-
-        <div>
-          <label className="block font-medium">Discount</label>
-          <input
-            type="number"
-            name="discount"
-            value={formData.discount}
-            onChange={handleChange}
-            className="w-full p-2 border rounded"
-            autoComplete="off"
-          />
-        </div>
-
-        <div>
-          <label className="block font-medium">Category</label>
-          <select
-            name="category"
-            value={formData.category}
-            onChange={handleSelect}
-            className="w-full border p-2 rounded"
-            disabled={catsLoading}
-          >
-            <option value="">
-              {catsLoading ? "Loading categories..." : "Select Category"}
-            </option>
-            {categories.map((cat: any) => (
-              <option key={cat._id ?? cat.game_code} value={cat.game_title}>
-                {cat.game_title}
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <Field label="Category (text)" error={errors.category}>
+            <input
+              name="category"
+              value={form.category}
+              onChange={onFieldChange}
+              className="w-full p-2 border rounded"
+            />
+          </Field>
+          <Field label="Game (object)" error={errors.game as string}>
+            <select
+              value={selectedGameId}
+              onChange={onSelectGame}
+              className="w-full border p-2 rounded"
+              disabled={gamesLoading}
+            >
+              <option value="">
+                {gamesLoading ? "Loading games..." : "Select Game"}
               </option>
-            ))}
-          </select>
-          {catsError && (
-            <p className="text-red-600 text-sm">
-              Failed to load categories.{" "}
-              <button
-                type="button"
-                onClick={() => refetchCategories()}
-                className="underline"
-              >
-                Retry
-              </button>
-            </p>
-          )}
-          {errors.category && (
-            <p className="text-red-600 text-sm">{errors.category}</p>
-          )}
+              {sortedGames.map((g) => (
+                <option key={g.id} value={g.id}>
+                  {g.game_title}
+                </option>
+              ))}
+            </select>
+          </Field>
         </div>
 
-        <div>
-          <label className="block font-medium">Release Date</label>
+        <Field label="Release Date">
           <input
-            type="date"
             name="releaseDate"
-            value={formData.releaseDate}
-            onChange={handleChange}
+            type="date"
+            value={form.releaseDate}
+            onChange={onFieldChange}
             className="w-full p-2 border rounded"
-            autoComplete="off"
           />
-        </div>
+        </Field>
 
-        <div>
-          <label className="block font-medium">Image</label>
-          {/* <input
+        <Field label="Image" error={errors.image}>
+          <input
             type="file"
-            name="image"
             accept="image/*"
-            onChange={handleChange}
+            onChange={onPickImage}
             className="w-full p-2 border rounded"
-            autoComplete="off"
-          /> */}
-          {formData.image && (
-            // <div className="mt-2 w-32 aspect-square">
-            //   <img
-            //     src={formData.image}
-            //     alt="Preview"
-            //     className="w-full h-full object-cover rounded"
-            //   />
-            // </div>
-            <></>
+            disabled={uploading}
+          />
+          {localPreview && (
+            <div className="mt-2 w-32 aspect-square rounded overflow-hidden border">
+              <img
+                src={localPreview}
+                alt="Preview"
+                className="w-full h-full object-cover"
+              />
+            </div>
           )}
-        </div>
+          {uploading && (
+            <p className="text-sm text-gray-600 mt-1">Uploading…</p>
+          )}
+        </Field>
 
-        {/* Submit */}
         <button
           type="submit"
-          disabled={saving}
+          disabled={saving || uploading || loadingSrc}
           className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-60"
         >
-          {saving ? "Saving…" : "Add Item"}
+          {loadingSrc
+            ? "Loading source…"
+            : saving
+            ? "Saving…"
+            : uploading
+            ? "Uploading…"
+            : "Add Item"}
         </button>
       </form>
+    </div>
+  );
+}
+
+function Field({
+  label,
+  error,
+  children,
+}: {
+  label: string;
+  error?: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <div>
+      <label className="block font-medium mb-1">{label}</label>
+      {children}
+      {error && <p className="text-red-600 text-sm mt-1">{error}</p>}
     </div>
   );
 }

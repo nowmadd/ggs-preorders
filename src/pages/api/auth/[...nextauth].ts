@@ -2,7 +2,7 @@ import NextAuth, { type NextAuthOptions } from "next-auth";
 import CredentialsProvider from "next-auth/providers/credentials";
 import GoogleProvider from "next-auth/providers/google";
 import bcrypt from "bcryptjs";
-import dbConnect from "@/lib/dbConnect";
+import dbConnect from "@/lib/store/db/connect";
 import Customer from "@/lib/models/Customer";
 import { Types } from "mongoose";
 

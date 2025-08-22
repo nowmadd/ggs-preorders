@@ -1,38 +1,54 @@
-// lib/models/Customer.ts
 import mongoose, { Schema, Document } from "mongoose";
 
-export type UserRole = "admin" | "customer";
-
 export interface ICustomer extends Document {
+  user_id: string; // NextAuth user id (token.sub)
+  google_id?: string; // Google subject id (also token.sub)
   name?: string;
-  email: string;
-  passwordHash?: string;
-  googleId?: string;
-  image?: string;
-  shopify_account_id?: string;
-  role: UserRole;
-  createdAt: Date;
-  updatedAt: Date;
+  email?: string;
+  avatar?: string;
+  phone?: string;
+  facebook?: string;
+  birthday?: string; // ISO date string "YYYY-MM-DD"
+  shipping?: {
+    street?: string;
+    brgy?: string;
+    city?: string;
+    province?: string;
+    zip?: string;
+  };
+  created_at?: Date;
+  updated_at?: Date;
 }
 
-// lib/models/Customer.ts (no `id` field here)
-const CustomerSchema = new Schema(
+const ShippingSchema = new Schema(
   {
-    name: String,
-    email: { type: String, unique: true, required: true, index: true },
-    passwordHash: String,
-    googleId: { type: String, index: true },
-    image: String,
-    shopify_account_id: { type: String, index: true },
-    role: {
-      type: String,
-      enum: ["admin", "customer"],
-      default: "customer",
-      index: true,
-    },
+    street: String,
+    brgy: String,
+    city: String,
+    province: String,
+    zip: String,
   },
-  { timestamps: true }
+  { _id: false }
 );
 
-export default mongoose.models.Customer ||
-  mongoose.model<ICustomer>("Customer", CustomerSchema);
+const CustomerSchema = new Schema<ICustomer>({
+  user_id: { type: String, required: true, unique: true, index: true },
+  google_id: String,
+  name: String,
+  email: String,
+  avatar: String,
+  phone: String,
+  facebook: String,
+  birthday: String,
+  shipping: ShippingSchema,
+  created_at: { type: Date, default: Date.now },
+  updated_at: { type: Date, default: Date.now },
+});
+
+CustomerSchema.pre("save", function (next) {
+  this.updated_at = new Date();
+  next();
+});
+
+export default mongoose.models.Customers ||
+  mongoose.model<ICustomer>("Customers", CustomerSchema);

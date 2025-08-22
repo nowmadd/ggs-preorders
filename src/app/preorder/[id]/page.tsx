@@ -14,6 +14,19 @@ import {
   useUploadReceiptMutation,
   type PreorderItem,
 } from "@/lib/store/api/preordersApi";
+import S3Thumb from "@/components/S3Thumb/S3Thumb";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { notify } from "@/lib/notify";
+
+// ✅ shadcn/ui Select
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 
 function fmt(n: number) {
   return `₱${Number(n || 0).toLocaleString()}`;
@@ -39,12 +52,9 @@ export default function ConfirmPreorderPage() {
 
   // kick guests to login, then back here
   useEffect(() => {
-    if (status === "unauthenticated") {
-      signIn(undefined, { callbackUrl });
-    }
+    if (status === "unauthenticated") signIn(undefined, { callbackUrl });
   }, [status, callbackUrl]);
 
-  // only fetch once authenticated (and we have an id)
   const {
     data: preorder,
     isLoading,
@@ -61,13 +71,14 @@ export default function ConfirmPreorderPage() {
   const [method, setMethod] = useState<"gcash" | "bank" | "other">("gcash");
   const [amount, setAmount] = useState<number>(0);
   const [reference, setReference] = useState("");
-  const [receiptBase64, setReceiptBase64] = useState("");
-  const [statusMsg, setStatusMsg] = useState<null | {
-    type: "success" | "error";
-    msg: string;
-  }>(null);
 
-  // compute totals (prefer detailed pricing)
+  // receipt states
+  const [receiptBase64, setReceiptBase64] = useState<string>(""); // fallback
+  const [receiptKey, setReceiptKey] = useState<string | null>(null); // S3 key when upload succeeds
+  const [receiptPreview, setReceiptPreview] = useState<string | null>(null);
+  const [uploading, setUploading] = useState(false);
+
+  // compute totals
   const { totalPrice, totalDP } = useMemo(() => {
     if (!preorder) return { totalPrice: 0, totalDP: 0 };
     const hasPricing = Array.isArray(preorder.items)
@@ -92,12 +103,10 @@ export default function ConfirmPreorderPage() {
     };
   }, [preorder]);
 
-  // set default amount when payType or totals change
   useEffect(() => {
     setAmount(payType === "dp" ? totalDP : totalPrice);
   }, [payType, totalDP, totalPrice]);
 
-  // owner/admin guard
   const isAdmin = (session?.user as any)?.role === "admin";
   const isOwner =
     preorder && session?.user?.id
@@ -106,32 +115,89 @@ export default function ConfirmPreorderPage() {
   const notOwner =
     status === "authenticated" && preorder && !isAdmin && !isOwner;
 
-  const onPickFile = (e: React.ChangeEvent<HTMLInputElement>) => {
+  // --- S3 upload helper
+  async function uploadToS3(file: File, folder = "preorder-receipts") {
+    const qs = new URLSearchParams({
+      filename: file.name,
+      contentType: file.type || "application/octet-stream",
+      folder,
+    });
+    const presign = await fetch(`/api/s3/presign?${qs.toString()}`);
+    if (!presign.ok) throw new Error("Failed to get presigned URL");
+    const { uploadUrl, key } = await presign.json();
+
+    const put = await fetch(uploadUrl, {
+      method: "PUT",
+      headers: { "Content-Type": file.type || "application/octet-stream" },
+      body: file,
+    });
+    if (!put.ok) throw new Error("Upload to S3 failed");
+    return key as string;
+  }
+
+  const onPickFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    if (file.size > 10 * 1024 * 1024) {
-      setStatusMsg({ type: "error", msg: "File too large (max 10MB)." });
+
+    if (!/^image\//i.test(file.type)) {
+      notify.error("Please select an image file.");
       return;
     }
-    const reader = new FileReader();
-    reader.onloadend = () => setReceiptBase64(String(reader.result));
-    reader.readAsDataURL(file);
+    if (file.size > 10 * 1024 * 1024) {
+      notify.error("File too large (max 10MB).");
+      return;
+    }
+
+    // Local preview
+    setReceiptPreview(URL.createObjectURL(file));
+
+    // Prepare base64 fallback immediately
+    const toBase64 = () =>
+      new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onloadend = () => resolve(String(reader.result));
+        reader.onerror = (err) => reject(err);
+        reader.readAsDataURL(file);
+      });
+
+    try {
+      setUploading(true);
+      const key = await uploadToS3(file, "preorder-receipts");
+      setReceiptKey(key);
+      setReceiptBase64(""); // not needed if S3 worked
+      notify.success("Receipt uploaded.");
+    } catch (err) {
+      console.error(err);
+      // fallback to base64
+      try {
+        const b64 = await toBase64();
+        setReceiptKey(null);
+        setReceiptBase64(b64);
+        notify.error("S3 upload failed. Using direct attachment instead.");
+      } catch (e) {
+        notify.error("Could not read the file. Please try again.");
+        setReceiptKey(null);
+        setReceiptBase64("");
+        setReceiptPreview(null);
+      }
+    } finally {
+      setUploading(false);
+    }
   };
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
-    setStatusMsg(null);
 
     if (!id) {
-      setStatusMsg({ type: "error", msg: "Missing preorder id." });
+      notify.error("Missing preorder id.");
       return;
     }
-    if (!receiptBase64) {
-      setStatusMsg({ type: "error", msg: "Please upload a payment receipt." });
+    if (!receiptKey && !receiptBase64) {
+      notify.error("Please upload a payment receipt.");
       return;
     }
     if (!amount || amount <= 0) {
-      setStatusMsg({ type: "error", msg: "Please enter a valid amount." });
+      notify.error("Please enter a valid amount.");
       return;
     }
 
@@ -144,34 +210,34 @@ export default function ConfirmPreorderPage() {
           amount,
           reference: reference.trim() || undefined,
           paidAt: new Date().toISOString(),
-          receipt_image_base64: receiptBase64,
-        },
+          // prefer S3 key; fall back to base64 for older backends
+          ...(receiptKey
+            ? { receipt_image_key: receiptKey }
+            : { receipt_image_base64: receiptBase64 }),
+        } as any,
       }).unwrap();
 
-      setStatusMsg({ type: "success", msg: "Receipt submitted. Thank you!" });
-
+      notify.success("Receipt submitted. Thank you!");
+      // optionally route somewhere:
       // router.push(`/preorders/${encodeURIComponent(id)}`);
     } catch (err) {
       console.error(err);
-      setStatusMsg({
-        type: "error",
-        msg: "Could not submit receipt. Please try again.",
+      notify.error("Could not submit receipt.", {
+        description: "Please try again.",
       });
     }
   };
 
-  // loading / redirecting states
+  // loading
   if (status === "loading" || (status === "authenticated" && isLoading)) {
     return (
-      <div className="max-w-5xl mx-auto p-6 space-y-3">
+      <div className=" mx-auto space-y-3">
         <div className="h-8 w-64 bg-gray-200 animate-pulse rounded" />
         <div className="h-5 w-48 bg-gray-200 animate-pulse rounded" />
         <div className="h-48 w-full bg-gray-200 animate-pulse rounded" />
       </div>
     );
   }
-
-  // we already triggered signIn above; nothing else to render here
   if (status === "unauthenticated") return null;
 
   if (isError) {
@@ -181,14 +247,11 @@ export default function ConfirmPreorderPage() {
           Failed to load preorder.
         </p>
         <div className="flex gap-2">
-          <button
-            onClick={() => refetch()}
-            className="px-3 py-2 rounded border hover:bg-gray-50"
-          >
+          <Button variant="outline" onClick={() => refetch()}>
             Retry
-          </button>
-          <Link href="/" className="px-3 py-2 rounded border hover:bg-gray-50">
-            ← Back to Home
+          </Button>
+          <Link href="/">
+            <Button variant="outline">← Back to Home</Button>
           </Link>
         </div>
       </div>
@@ -201,11 +264,10 @@ export default function ConfirmPreorderPage() {
         <p className="text-red-700 bg-red-50 p-3 rounded">
           Preorder not found.
         </p>
-        <Link
-          href="/"
-          className="inline-block mt-3 px-3 py-2 rounded border hover:bg-gray-50"
-        >
-          ← Back
+        <Link href="/">
+          <Button variant="outline" className="mt-3">
+            ← Back
+          </Button>
         </Link>
       </div>
     );
@@ -213,20 +275,20 @@ export default function ConfirmPreorderPage() {
 
   if (notOwner) {
     return (
-      <div className="max-w-3xl mx-auto p-6 space-y-3">
+      <div className="mx-auto space-y-3">
         <h1 className="text-xl font-semibold">403 — Not Authorized</h1>
         <p className="text-gray-700">
           This preorder belongs to a different account.
         </p>
-        <Link href="/" className="px-3 py-2 rounded border hover:bg-gray-50">
-          Go Home
+        <Link href="/">
+          <Button variant="outline">Go Home</Button>
         </Link>
       </div>
     );
   }
 
   return (
-    <div className="max-w-5xl mx-auto p-6 space-y-6">
+    <div className="mx-auto space-y-6">
       {/* Header */}
       <div className="flex items-start justify-between">
         <div>
@@ -241,12 +303,11 @@ export default function ConfirmPreorderPage() {
           )}
         </div>
         <Link
-          href={`/preorder-offers/new?offerId=${encodeURIComponent(
+          href={`/preorder/new?offerId=${encodeURIComponent(
             preorder.offer_id
           )}`}
-          className="px-3 py-2 rounded border hover:bg-gray-50"
         >
-          Back to Details
+          <Button>Back</Button>
         </Link>
       </div>
 
@@ -282,7 +343,6 @@ export default function ConfirmPreorderPage() {
                   it.pricing?.line_total_price ?? unitPrice * it.quantity;
                 const lineDp =
                   it.pricing?.line_total_dp ?? unitDp * it.quantity;
-                const thumb = it.snapshot?.image;
 
                 return (
                   <tr
@@ -292,13 +352,12 @@ export default function ConfirmPreorderPage() {
                     <td className="py-2 px-3">
                       <div className="flex gap-3">
                         <div className="w-12 aspect-square rounded border bg-gray-50 overflow-hidden shrink-0">
-                          {thumb ? (
-                            <img
-                              src={thumb}
-                              alt={title}
-                              className="w-full h-full object-cover"
-                            />
-                          ) : null}
+                          <S3Thumb
+                            src={it.snapshot?.image}
+                            alt={title}
+                            className="w-full h-full object-cover"
+                            emptyClassName="w-full h-full bg-gray-100"
+                          />
                         </div>
                         <div>
                           <div className="font-medium">{title}</div>
@@ -342,7 +401,6 @@ export default function ConfirmPreorderPage() {
       <form onSubmit={submit} className="bg-white rounded border p-4 space-y-4">
         <h2 className="font-medium">Payment</h2>
 
-        {/* Pay type */}
         <div className="flex flex-wrap gap-4">
           <label className="inline-flex items-center gap-2">
             <input
@@ -366,32 +424,36 @@ export default function ConfirmPreorderPage() {
           </label>
         </div>
 
-        {/* Method / Amount / Reference */}
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+          {/* ✅ shadcn/ui Select replaces native <select> */}
           <div>
             <label className="block text-sm font-medium mb-1">Method</label>
-            <select
+            <Select
               value={method}
-              onChange={(e) => setMethod(e.target.value as any)}
-              className="w-full border rounded p-2"
+              onValueChange={(v) => setMethod(v as "gcash" | "bank" | "other")}
             >
-              <option value="gcash">GCash</option>
-              <option value="bank">Bank Transfer</option>
-              <option value="other">Other</option>
-            </select>
+              <SelectTrigger className="w-full">
+                <SelectValue placeholder="Select method" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="gcash">GCash</SelectItem>
+                <SelectItem value="bank">Bank Transfer</SelectItem>
+                <SelectItem value="other">Other</SelectItem>
+              </SelectContent>
+            </Select>
           </div>
 
           <div>
             <label className="block text-sm font-medium mb-1">
               Amount You Sent
             </label>
-            <input
+            <Input
               type="number"
               min={0}
               step="1"
               value={amount}
               onChange={(e) => setAmount(Number(e.target.value || 0))}
-              className="w-full border rounded p-2 text-right"
+              className="w-full text-right"
             />
           </div>
 
@@ -399,59 +461,43 @@ export default function ConfirmPreorderPage() {
             <label className="block text-sm font-medium mb-1">
               Reference No. (optional)
             </label>
-            <input
+            <Input
               type="text"
               value={reference}
               onChange={(e) => setReference(e.target.value)}
-              className="w-full border rounded p-2"
               placeholder="e.g. GCASH-12345"
             />
           </div>
         </div>
 
-        {/* Receipt */}
         <div>
           <label className="block text-sm font-medium mb-1">
             Upload Receipt (image)
           </label>
-          <input
+          <Input
             type="file"
             accept="image/*"
             onChange={onPickFile}
-            className="w-full border rounded p-2"
+            disabled={uploading}
           />
-          {receiptBase64 && (
+          {receiptPreview && (
             <div className="mt-2 w-32 aspect-square">
               <img
-                src={receiptBase64}
+                src={receiptPreview}
                 alt="Receipt preview"
                 className="w-full h-full object-cover rounded border"
               />
             </div>
           )}
-          <p className="text-xs text-gray-500 mt-1">Max 10MB. JPG/PNG.</p>
+          <p className="text-xs text-gray-500 mt-1">
+            Max 10MB. JPG/PNG. {uploading ? "Uploading…" : ""}
+          </p>
         </div>
 
-        {statusMsg && (
-          <div
-            className={`p-3 rounded ${
-              statusMsg.type === "success"
-                ? "bg-green-100 text-green-700"
-                : "bg-red-100 text-red-700"
-            }`}
-          >
-            {statusMsg.msg}
-          </div>
-        )}
-
         <div className="flex justify-end">
-          <button
-            type="submit"
-            disabled={saving}
-            className="px-4 py-2 rounded bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-60"
-          >
+          <Button type="submit" disabled={saving || uploading}>
             {saving ? "Submitting…" : "Confirm & Upload Receipt"}
-          </button>
+          </Button>
         </div>
       </form>
     </div>

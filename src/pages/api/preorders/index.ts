@@ -1,7 +1,7 @@
 import type { NextApiRequest, NextApiResponse } from "next";
 import { getServerSession } from "next-auth/next";
 import { authOptions } from "../auth/[...nextauth]";
-import dbConnect from "../../../lib/dbConnect";
+import dbConnect from "../../../lib/store/db/connect";
 import Preorders from "../../../lib/models/Preorders";
 export default async function handler(
   req: NextApiRequest,

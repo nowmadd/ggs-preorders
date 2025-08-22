@@ -8,11 +8,26 @@ export interface IItem extends Document {
   dp: number;
   discount: number;
   category?: string;
-  releaseDate?: string;
+  releaseDate?: string | Date;
   image?: string;
   images?: string[];
-  title: string;
+  title?: string;
+
+  game?: {
+    id: string;
+    game_title: string;
+    game_image?: string;
+  };
 }
+
+const GameSnapSchema = new Schema(
+  {
+    id: { type: String, required: true },
+    game_title: { type: String, required: true },
+    game_image: { type: String },
+  },
+  { _id: false }
+);
 
 const ItemSchema = new Schema<IItem>({
   id: { type: String, required: true, unique: true },
@@ -26,6 +41,7 @@ const ItemSchema = new Schema<IItem>({
   releaseDate: Date,
   image: { type: String },
   images: [{ type: String }],
+  game: { type: GameSnapSchema },
 });
 
 export default mongoose.models.Items ||
